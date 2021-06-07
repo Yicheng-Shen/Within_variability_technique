@@ -1,0 +1,188 @@
+---
+title: "Raster extract"
+author: "FULL_CODE_NEW"
+date: "19/04/2021"
+output: html_document
+---
+
+#Very useful link
+https://pjbartlein.github.io/REarthSysSci/geospatial.html
+
+##Get  lat-lon points
+```{r}
+#   Modify path to the data
+polen_path <- "/Users/Esmesaurio/OneDrive - University of Reading/NEW_ITERATION_FINAL_MAY_2021/Data/Modern_pollen_percent/"
+polen_name <- "Modern_pollen_percent_embsecbio_smpds_May2021.csv"
+polen_file <- paste(polen_path, polen_name, sep="")
+polen <- read_csv(polen_file) 
+str(polen)
+```
+
+
+```{r}
+alpoints <- polen %>% 
+   select(entity_name, ID_SAMPLE, latitude, longitude) %>% 
+   distinct()
+
+rm(polen)
+```
+
+
+
+#Import raster map in format ncdf
+```{r}
+#   Modify path to the data
+veg_path <- "/Users/Esmesaurio/OneDrive - University of Reading/NEW_ITERATION_FINAL_MAY_2021/Data/Extract_PNV_biome/"
+veg_name <- "westSMPDS_1km_RasterToNetCDF.nc"
+veg_file <- paste(veg_path, veg_name, sep="")
+#veg_pnv <- read_csv(veg_file) 
+#str(pnv_obs)
+veg_pnv <- raster::raster(veg_file, varname="biome_type")
+veg_pnv
+```
+https://pjbartlein.github.io/REarthSysSci/geospatial.html
+
+```{r}
+library(raster)
+library(sf)
+library(rasterVis)
+
+
+# turn points into an sf object
+alpoints_sf <- st_as_sf(alpoints, coords = c("longitude", "latitude"))
+class(alpoints_sf)
+alpoints_sf
+
+#Set as an spatial points object
+st_crs(alpoints_sf) <- st_crs("+proj=longlat")
+# gcdv3_pts <- as_Spatial(gcdv3_sf)
+
+#Produce a map only if needed
+mapTheme <-rasterVis::rasterTheme(region=rev(RColorBrewer::brewer.pal(8,"Spectral")))
+plt <- rasterVis::levelplot(veg_pnv, margin=FALSE, par.settings=mapTheme)
+#plt <- rasterVis::levelplot(vegtype, margin=FALSE,
+                # main="Potential Natural Vegetation")
+plt + layer(sp.points(as_Spatial(alpoints_sf), col="hotpink", pch=16, cex=0.5))
+```
+
+
+```{r}
+detach("package:rasterVis", unload = TRUE)
+rm(mapTheme, plt)
+```
+
+
+
+#Extract data from the raster map using a buffer
+
+Useful link: https://gis.stackexchange.com/questions/174836/buffer-from-point-or-polygon-with-information-from-raster
+```{r}
+#Create a function that 
+
+nmatrix <- function(n) {
+   ## n must be odd and > 1
+   m <- matrix(1, n, n)
+   m[ceiling(length(m) / 2)] <- 0
+   m
+}
+
+
+#Size of the buffer, For example, a value of 3 will create a square buffer of 3 cells per side, with the target cell at the center
+start0 <- 41
+
+
+# Add an attribute to SPDF that is the cell number of the raster, per point
+alpoints_sf$cellno <- raster::extract(veg_pnv, alpoints_sf,cellnumbers=T)[,"cells"]
+
+
+# use the 'adjacent' function to extract queen's case raster cells, per point
+# this requires the cell numbers we extracted above
+li <- lapply(alpoints_sf$cellno, function(x) adjacent(veg_pnv,x, directions = nmatrix(start0), include=T))
+
+# collapse to one data frame
+df <- do.call(rbind.data.frame, li)
+
+# add a column that is the values of the cells, per point
+df$val <- extract(veg_pnv,df[,2])
+
+# if you want, merge in the XY data
+#df.all <- merge(df, alpoints_sf@data, by.x = "from", by.y = "cellno")
+pnv_obs <- full_join(alpoints_sf,df,by=c("cellno"="from")) %>% 
+   data.frame() %>% 
+   dplyr::select(entity_name,cellno,to,val) %>% 
+   inner_join(alpoints) %>% 
+   count(entity_name, val, sort = TRUE) %>% 
+   group_by(entity_name) %>%
+   summarise(Dominant_num = val[1], Subdominant_num = val[2], Third_num = val[3])
+```
+
+
+
+```{r}
+biom_obs <- pnv_obs %>% 
+   mutate(Dominant_num = Dominant_biome) %>% 
+   mutate(Dominant = Dominant_num) %>% 
+   mutate(Subdominant_num = Subdominant_biome) %>% 
+   mutate(Subdominant = Subdominant_num) %>% 
+   mutate(Third_num = Third) %>% 
+   mutate(Third = Third_num) %>% 
+   dplyr::select(entity_name,Dominant_num,Dominant,Subdominant_num,Subdominant, Third_biome_num, Third_biome)
+
+biom_obs$Dominant[biom_obs$Dominant==4]<-"WTSFS"
+biom_obs$Dominant[biom_obs$Dominant==8]<-"COOL"
+biom_obs$Dominant[biom_obs$Dominant==9]<-"CMIX"
+biom_obs$Dominant[biom_obs$Dominant==13]<-"TEDE"
+biom_obs$Dominant[biom_obs$Dominant==14]<-"ColDeFo"
+biom_obs$Dominant[biom_obs$Dominant==15]<-"CENF"
+biom_obs$Dominant[biom_obs$Dominant==16]<-"DBWD"
+biom_obs$Dominant[biom_obs$Dominant==17]<-"ENWD"
+biom_obs$Dominant[biom_obs$Dominant==20]<-"XSHB"
+biom_obs$Dominant[biom_obs$Dominant==22]<-"GRAM"
+biom_obs$Dominant[biom_obs$Dominant==27]<-"DESE"
+biom_obs$Dominant[biom_obs$Dominant==28]<-"TUND"
+biom_obs$Dominant[biom_obs$Dominant==30]<-"TUND"
+biom_obs$Dominant[biom_obs$Dominant==31]<-"TUND"
+biom_obs$Dominant[biom_obs$Dominant==32]<-"TUND"
+
+biom_obs$Subdominant[biom_obs$Subdominant==4]<-"WTSFS"
+biom_obs$Subdominant[biom_obs$Subdominant==8]<-"COOL"
+biom_obs$Subdominant[biom_obs$Subdominant==9]<-"CMIX"
+biom_obs$Subdominant[biom_obs$Subdominant==13]<-"TEDE"
+biom_obs$Subdominant[biom_obs$Subdominant==14]<-"ColDeFo"
+biom_obs$Subdominant[biom_obs$Subdominant==15]<-"CENF"
+biom_obs$Subdominant[biom_obs$Subdominant==16]<-"DBWD"
+biom_obs$Subdominant[biom_obs$Subdominant==17]<-"ENWD"
+biom_obs$Subdominant[biom_obs$Subdominant==20]<-"XSHB"
+biom_obs$Subdominant[biom_obs$Subdominant==22]<-"GRAM"
+biom_obs$Subdominant[biom_obs$Subdominant==27]<-"DESE"
+biom_obs$Subdominant[biom_obs$Subdominant==28]<-"TUND"
+biom_obs$Subdominant[biom_obs$Subdominant==30]<-"TUND"
+biom_obs$Subdominant[biom_obs$Subdominant==31]<-"TUND"
+biom_obs$Subdominant[biom_obs$Subdominant==32]<-"TUND"
+
+
+biom_obs$Third[biom_obs$Third==4]<-"WTSFS"
+biom_obs$Third[biom_obs$Third==8]<-"COOL"
+biom_obs$Third[biom_obs$Third==9]<-"CMIX"
+biom_obs$Third[biom_obs$Third==13]<-"TEDE"
+biom_obs$Third[biom_obs$Third==14]<-"ColDeFo"
+biom_obs$Third[biom_obs$Third==15]<-"CENF"
+biom_obs$Third[biom_obs$Third==16]<-"DBWD"
+biom_obs$Third[biom_obs$Third==17]<-"ENWD"
+biom_obs$Third[biom_obs$Third==20]<-"XSHB"
+biom_obs$Third[biom_obs$Third==22]<-"GRAM"
+biom_obs$Third[biom_obs$Third==27]<-"DESE"
+biom_obs$Third[biom_obs$Third==28]<-"TUND"
+biom_obs$Third[biom_obs$Third==30]<-"TUND"
+biom_obs$Third[biom_obs$Third==31]<-"TUND"
+biom_obs$Third[biom_obs$Third==32]<-"TUND"
+```
+
+
+
+```{r}
+write.csv(biom_obs,"./resolution1kmfrom250m_window41km_perside.csv")
+```
+
+
+

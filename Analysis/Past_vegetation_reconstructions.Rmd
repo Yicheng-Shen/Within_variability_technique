@@ -1,0 +1,380 @@
+---
+title: "PROB_DOWNCORE"
+author: "FULL_CODE_NEW"
+date: "02/12/2020"
+output: html_document
+---
+
+
+```{r}
+DowncoreData <- read.csv("Input/SampleData_DOWNCORE_16April2021.csv",header=TRUE,sep=",")
+
+DowncoreData <- DowncoreData %>% subset(age<13200)
+
+BiomeData <- read.csv("Input/BiomeData_EC4c.csv",header=TRUE,sep=",")
+
+#Create a table AllData
+alldata <- full_join(DowncoreData,BiomeData,by="taxon_name")
+str(alldata)
+```
+
+
+##PREDICTED BIOME
+Prepare the data
+```{r}
+alldata <- alldata %>% 
+  ##Remove taxa that are in the training set, but do not appear in the downcore data of the EMBSECBIO region
+  filter(!is.na(ID_SAMPLE)) %>% 
+  #Remove taxa that are in the testing set, but not in the training set.
+  subset(!is.na(Mean_CENF))
+```
+
+
+###Dissimilarity index
+```{r}
+alldata %>% 
+  #Set a value for epsilon
+  mutate(Epsilon=0.5)%>% 
+  mutate(TUND_Sqrt=(taxon_percent-Mean_TUND)^2/((Stdev_TUND+Epsilon)^2)) %>% 
+  mutate(DESE_Sqrt=(taxon_percent-Mean_DESE)^2/((Stdev_DESE+Epsilon)^2)) %>% 
+  mutate(GRAM_Sqrt=(taxon_percent-Mean_GRAM)^2/((Stdev_GRAM+Epsilon)^2)) %>% 
+  mutate(XSHB_Sqrt=(taxon_percent-Mean_XSHB)^2/((Stdev_XSHB+Epsilon)^2)) %>% 
+  mutate(CENF_Sqrt=(taxon_percent-Mean_CENF)^2/((Stdev_CENF+Epsilon)^2)) %>% 
+  #mutate(COOL_Sqrt=(taxon_percent-Mean_COOL)^2/((Stdev_COOL+Epsilon)^2)) %>% 
+  mutate(TEDE_Sqrt=(taxon_percent-Mean_TEDE)^2/((Stdev_TEDE+Epsilon)^2)) %>% 
+  mutate(CMIX_Sqrt=(taxon_percent-Mean_CMIX)^2/((Stdev_CMIX+Epsilon)^2)) %>% 
+  mutate(ENWD_Sqrt=(taxon_percent-Mean_ENWD)^2/((Stdev_ENWD+Epsilon)^2)) %>% 
+  mutate(WTSFS_Sqrt=(taxon_percent-Mean_WTSFS)^2/((Stdev_WTSFS+Epsilon)^2)) %>% 
+  dplyr::select(ID_SAMPLE,age,TUND_Sqrt,DESE_Sqrt,GRAM_Sqrt,XSHB_Sqrt,CENF_Sqrt,
+         TEDE_Sqrt,CMIX_Sqrt,ENWD_Sqrt,WTSFS_Sqrt) %>% 
+  group_by(ID_SAMPLE,age) %>% 
+  summarise(across(c(TUND_Sqrt,DESE_Sqrt,GRAM_Sqrt,XSHB_Sqrt,CENF_Sqrt,
+         TEDE_Sqrt,CMIX_Sqrt,ENWD_Sqrt,WTSFS_Sqrt), sum))%>% 
+  mutate(across(c(TUND_Sqrt,DESE_Sqrt,GRAM_Sqrt,XSHB_Sqrt,CENF_Sqrt,
+         TEDE_Sqrt,CMIX_Sqrt,ENWD_Sqrt,WTSFS_Sqrt), sqrt)) %>% 
+  ungroup()->sqsc
+```
+
+
+###Get recirpocal of the scores and normalization
+```{r}
+sqsc %>% 
+  mutate(TUND=exp(-TUND_Sqrt)) %>% 
+  mutate(DESE=exp(-DESE_Sqrt)) %>% 
+  mutate(GRAM=exp(-GRAM_Sqrt)) %>% 
+  mutate(XSHB=exp(-XSHB_Sqrt)) %>% 
+  mutate(ENWD=exp(-ENWD_Sqrt)) %>% 
+  mutate(WTSFS=exp(-WTSFS_Sqrt)) %>% 
+  mutate(CENF=exp(-CENF_Sqrt)) %>% 
+  #mutate(COOL=exp(-COOL_Sqrt)) %>% 
+  mutate(CMIX=exp(-CMIX_Sqrt)) %>% 
+  mutate(TEDE=exp(-TEDE_Sqrt)) %>%   
+  dplyr::select(ID_SAMPLE,age,TUND,DESE,GRAM,XSHB,ENWD,
+         WTSFS,CENF,CMIX,TEDE)->biomes
+
+#write.csv(biomes,"/Users/Esmesaurio/Desktop/biomaspoportions.csv")
+```
+
+
+```{r}
+min_max_norm <- function(x) {(x - min(x)) / (max(x) - min(x))}
+
+biomes[3:11]<-modify(biomes[3:11],min_max_norm)
+```
+
+
+For maps
+```{r}
+alldatafjoin <- alldata %>% 
+  dplyr::select(entity_name,latitude,longitude,ID_SAMPLE) %>% 
+  distinct()
+
+biomes_maps <- biomes %>% 
+  mutate(predicted_biome=colnames(biomes [,3:11])[apply(biomes [,3:11], 1, which.max)]) %>% 
+  mutate(predicted_score=apply(biomes [,3:11], 1, max)) %>% 
+  dplyr::select(ID_SAMPLE,age,predicted_biome, predicted_score) %>% 
+  inner_join(alldatafjoin, by="ID_SAMPLE")
+
+biomes_plots <- biomes %>% 
+  mutate(predicted_biome=colnames(biomes [,3:11])[apply(biomes [,3:11], 1, which.max)]) %>% 
+  mutate(predicted_score=apply(biomes [,3:11], 1, max)) %>% 
+  inner_join(alldatafjoin, by="ID_SAMPLE") %>% 
+  group_by(entity_name) %>% 
+  filter(n() >= 10) %>% 
+  ungroup() %>% 
+  pivot_longer(!c(entity_name,latitude,longitude,ID_SAMPLE,age,predicted_biome,predicted_score), 
+               names_to = "BIOME", values_to = "SIM_SCORE") %>% 
+  group_by(ID_SAMPLE) %>%
+  mutate(SCORE_PROPORT=(SIM_SCORE/sum(SIM_SCORE))*1) %>% 
+  ungroup()
+
+biomes_lines <- biomes_plots %>% 
+  group_by(ID_SAMPLE) %>% 
+  slice_max(predicted_score) %>% 
+  select(entity_name, ID_SAMPLE, age, predicted_biome,SCORE_PROPORT, predicted_score)
+
+#write.csv(biomes,"./Output/FinalPredictedBiomes_Downcore.csv")
+```
+
+
+```{r}
+cols<-  c("4"="#8FB83E", "8"="#BBA6D0", "9"="#28B8C8", "13"="#005B89", "14"="#BBA6D0", "15"="#6B2F85","16"="#E6706E","17"="#F7FFCA", "20"="#E6706E", "22"="#FAD272","27"="#F7FFCA", "28"="#B03E8D")#, "30"="#39c9bb","31"="#39c9bb")
+
+
+colores<- c("XSHB"="#E6706E","GRAM"="#FAD272","DESE"="#F7FFCA","ENWD"="#E0E376","WTSFS"="#8FB83E","COOL"="#BBA6D0","CENF"="#6B2F85","XSHB"="#E6706E","TEDE"="#005B89","CMIX"="#28B8C8","TUND"="#B03E8D","CDFO"="#BBA6D0") #"30"="TUND", "31"="TUND", "14"="CDFO")
+```
+
+
+
+```{r}
+world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
+#class(world)
+#land<-raster::shapefile("/Users/Esmesaurio/OneDrive - University of Reading/PAPER_NEW_BIOMISATION_FIGURES/Natural Earth Data/Medium_scale/ne_50m_land/ne_50m_land.shp")
+
+ocean<- raster::shapefile("/Users/Esmesaurio/OneDrive - University of Reading/PAPER_NEW_BIOMISATION_FIGURES/Natural Earth Data/Medium_scale/ne_50m_ocean/ne_50m_ocean.shp")
+
+elevation<- raster::raster("/Users/Esmesaurio/OneDrive - University of Reading/PAPER_NEW_BIOMISATION_FIGURES/Natural Earth Data/Medium_scale/MSR_50M_manual_elevation/MSR_50M/MSR_50M.tif")
+
+#  Define your own domine:
+quicksubset <- function(x, longlat){
+# longlat should be a vector of four values: c(xmin, xmax, ymin, ymax)
+  x@data$id <- rownames(x@data)
+  xf = fortify(x, region="id")
+  xjoin = plyr::join(xf, x@data, by="id")
+  xsubset <- subset(xjoin, xjoin$long > longlat[1] & xjoin$long < longlat[2] &
+                           xjoin$lat > longlat[3] & xjoin$lat < longlat[4])
+  xsubset
+}
+ 
+#ylim = c(28.05317,49.2431), xlim = c(19.54792, 62.44992)
+domain <- c(19.54792, 64, 28.05317,49.2431)
+#landsubset <- quicksubset(land, domain)
+ 
+natelevation <- raster::crop(elevation, y=raster::extent(domain))
+
+#rast_table <- data.frame(xyFromCell(natelevation, 1:ncell(natelevation)),
+                         #getValues(natelevation/255))
+
+raster::ratify(natelevation) %>% 
+  #convert the raster to points for plotting
+  raster::rasterToPoints() %>% 
+  #Make the points a dataframe for ggplot
+  data.frame()->natelevation
+
+#Make appropriate column headings
+colnames(natelevation) <- c("Longitude", "Latitude", "elevation")
+```
+
+
+```{r}
+biomes_maps %>% 
+  mutate(TimeSlice=age) %>% 
+  mutate(TimeSlice=replace(TimeSlice, age<=150, "Present")) %>% 
+  mutate(TimeSlice=replace(TimeSlice, age%in%c(875:1125), "1kyBP±125")) %>% 
+  mutate(TimeSlice=replace(TimeSlice, age%in%c(1875:2125), "2kyBP±125")) %>%
+  mutate(TimeSlice=replace(TimeSlice, age%in%c(2875:3125), "3kyBP±125")) %>% 
+  mutate(TimeSlice=replace(TimeSlice, age%in%c(3875:4125), "4kyBP±125")) %>%
+  mutate(TimeSlice=replace(TimeSlice, age%in%c(4875:5125), "5kyBP±125")) %>%
+  mutate(TimeSlice=replace(TimeSlice, age%in%c(5875:6125), "6kyBP±125")) %>% 
+  mutate(TimeSlice=replace(TimeSlice, age%in%c(6875:7125), "7kyBP±125")) %>%
+  mutate(TimeSlice=replace(TimeSlice, age%in%c(7875:8125), "8kyBP±125")) %>%
+  mutate(TimeSlice=replace(TimeSlice, age%in%c(8875:9125), "9kyBP±125")) %>%
+  mutate(TimeSlice=replace(TimeSlice, age%in%c(9875:10125), "10kyBP±125")) %>% 
+  mutate(TimeSlice=replace(TimeSlice, age%in%c(10875:11125), "11kyBP±125")) %>%
+  mutate(TimeSlice=replace(TimeSlice, age%in%c(11875:12125), "12kyBP±125")) %>%
+  mutate(TimeSlice=replace(TimeSlice, age%in%c(12875:13125), "13kyBP±125")) %>%
+  #mutate(TimeSlice=replace(TimeSlice, AGE%in%c(12151:12500), "12150 to 12500 kyBP")) %>%
+  subset(TimeSlice%in%c("Present","1kyBP±125","2kyBP±125","3kyBP±125","4kyBP±125","5kyBP±125","6kyBP±125","7kyBP±125","8kyBP±125","9kyBP±125","10kyBP±125","11kyBP±125","12kyBP±125","13kyBP±125"))->slig
+```
+
+
+```{r}
+selected_time <- "Present"
+
+PresentMap <- ggplot(data = world) +
+  #geom_sf(col="black",fill="transparent") + #Using if we want political borders
+  coord_sf(ylim = c(28.05317,49.2431), xlim = c(19.54792, 64), expand = FALSE)+
+  geom_raster(data=natelevation, aes(y=Latitude, x=Longitude, fill=elevation), show.legend = F)+
+  scale_fill_gradientn(colours = c("#6c8396", "#f8f8f8"))+#152736
+  geom_polygon(data = ocean, aes(x=long, y=lat, group=group), fill='#E2F1FC')+#E2F1FC
+  geom_point(subset(slig, slig$TimeSlice==selected_time),
+    mapping = aes(x = longitude, y = latitude,colour=predicted_biome, size=predicted_score), alpha=0.8)+
+      scale_size(limits = c(min(slig$predicted_score),max(slig$predicted_score)),range = c(0.5,5),breaks = c(0.25,1))+ #or: c(0.1,5)
+      scale_color_manual(values = colores)+
+  guides(color = guide_legend(override.aes = list(size = 2.5))) +
+  ggtitle(selected_time)+
+  annotate(geom = "text", x = 34.25, y = 43.25, label = "Black Sea", 
+   fontface = "italic", color = "#666A6A", size = 4) +
+  annotate(geom = "text", x = 28, y = 33.5, label = "Mediterranean Sea", 
+    fontface = "italic", color = "#666A6A", size = 4) +
+  annotate(geom = "text", x = 50.3, y = 42.5, label = "Caspian", 
+    fontface = "italic", color = "#666A6A", size = 4) +
+  annotate(geom = "text", x = 50.65, y = 41.2, label = "Sea", 
+    fontface = "italic", color = "#666A6A", size = 4) +
+  labs(x = "Longitude", y = "Latitude") +
+  theme(axis.title.x = element_text(size=11,color = "black"),
+        axis.title.y = element_text(size=11, angle=90),
+        axis.text.x = element_text(size=11),
+        axis.text.y = element_text(size=11),
+        panel.grid.major = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA)) 
+
+PresentMap
+
+ggsave(PresentMap, file="./Strat_maps/EC4c_0.5/Modern_EC4c_ep0.5.tiff", scale=1)
+```
+
+
+```{r}
+# folder where you want the graphs to be saved:
+results <- "./Strat_maps/EC4c_0.5/"  
+  
+  # create list of time windows data to loop over 
+  entity_list <- unique(slig$TimeSlice)
+  
+  # create for loop to produce ggplot2 graphs 
+  for (i in seq_along(entity_list)) { 
+    plot <- 
+  ggplot(data = world) +
+  coord_sf(ylim = c(28.05317,49.2431), xlim = c(19.54792, 64), expand = FALSE)+
+#  geom_raster(data=natelevation, aes(y=Latitude, x=Longitude, fill=elevation), show.legend = F)+
+ # scale_fill_gradientn(colours = c("#6c8396", "#f8f8f8"))+#152736
+  geom_polygon(data = ocean, aes(x=long, y=lat, group=group), fill='#E2F1FC')+#E2F1FC
+  geom_point(subset(slig, slig$TimeSlice==entity_list[i]),
+    mapping = aes(x = longitude, y = latitude,colour=predicted_biome, size=predicted_score), alpha=0.8)+
+      scale_size(limits = c(min(slig$predicted_score),max(slig$predicted_score)),range = c(1, 10),breaks = c(0.25,0.5,1))+
+      scale_color_manual(values = colores)+
+      guides(color = guide_legend(override.aes = list(size = 2))) +
+  ggtitle(entity_list[i])+
+  annotate(geom = "text", x = 34.25, y = 43.25, label = "Black Sea", 
+   fontface = "italic", color = "#666A6A", size = 4) +
+  annotate(geom = "text", x = 28, y = 33.5, label = "Mediterranean Sea", 
+    fontface = "italic", color = "#666A6A", size = 4) +
+  annotate(geom = "text", x = 50.3, y = 42.5, label = "Caspian", 
+    fontface = "italic", color = "#666A6A", size = 4) +
+  annotate(geom = "text", x = 50.65, y = 41.2, label = "Sea", 
+    fontface = "italic", color = "#666A6A", size = 4) +
+  labs(x = "Longitude", y = "Latitude") +
+  theme(axis.title.x = element_text(size=11,color = "black"),
+        axis.title.y = element_text(size=11, angle=90),
+        axis.text.x = element_text(size=11),
+        axis.text.y = element_text(size=11),
+        panel.border = element_rect(colour = "black", fill=NA))   
+
+    #save plots as .pdf
+    ggsave(plot, file=paste(results, 
+                           entity_list[i], "_EC4c_ep0.5_ALPHA0.8.pdf", sep=''), scale=1)
+    
+    # print plots to screen
+    print(plot)
+  }
+
+```
+
+____________________________________________________________
+____________________________________________________________
+
+
+```{r}
+
+# folder where you want the graphs to be saved:
+results <- "./Strat_plot/EC4c_ep0.5/"  
+
+# create graphing function
+#entity.graph <- function(biomes3lo, na.rm = TRUE){
+  
+  # create list of counties in data to loop over 
+  entity_list <- unique(biomes_plots$entity_name)
+  
+  # create for loop to produce ggplot2 graphs 
+  for (i in seq_along(entity_list)) { 
+    
+    # create plot for each county in df 
+    plot <- 
+      ggplot(subset(biomes_plots, biomes_plots$entity_name==entity_list[i]),
+             aes(x = age, y = SCORE_PROPORT, fill=BIOME)) +
+  geom_area()+
+  #geom_point(aes(col=BIOME, size=1.5))+
+  scale_fill_manual(values = colores)+
+  expand_limits(x = c(0, 12500))+
+  scale_x_continuous(breaks=seq(0, 12500, 2000),name="Age (cal yr BP)",expand = c(0,0))+
+  scale_y_continuous(name="Score proportion",expand = c(0,0))+
+  labs(title = entity_list[i])+
+  theme(axis.title.x = element_text(size=14),
+        axis.title.y = element_text(size=14, angle=90),
+        axis.text.x = element_text(size=12),
+        axis.text.y = element_text(size=12),
+        #axis.ticks.length = unit(3, "pt"),
+        legend.title = element_text(size=12, face="bold"),
+        legend.text = element_text(size=11),
+        legend.position = "right")+
+  theme(panel.grid.major = element_line(color = "gray", size = 0.6, linetype="dotted"),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA)) 
+    
+     #save plots as .pdf
+    ggsave(plot, file=paste(results, 
+                           entity_list[i], "_EC4c_ep0.5.tiff", sep=''),height = 4 , width = 10)
+    
+    # print plots to screen
+    #print(plot)
+  }
+#}
+
+```
+
+
+
+
+```{r}
+# folder where you want the graphs to be saved:
+results <- "./Strat_lines/EC4c_ep0.5/PDF/"  
+
+# create graphing function
+#entity.graph <- function(biomes3lo, na.rm = TRUE){
+  
+  # create list of counties in data to loop over 
+  entity_list <- unique(biomes_lines$entity_name)
+  
+  # create for loop to produce ggplot2 graphs 
+  for (i in seq_along(entity_list)) { 
+    
+    # create plot for each county in df 
+    plot <- 
+      ggplot(subset(biomes_lines, biomes_lines$entity_name==entity_list[i]),
+             aes(x = age, y = predicted_score)) +
+  geom_line()+
+  expand_limits(x = c(0, 12500))+
+  scale_x_continuous(breaks=seq(0, 12500, 2000),name="Age (cal yr BP)",expand = c(0,0))+
+  scale_y_continuous(name="Similarity score",expand = c(0,0))+
+  labs(title = entity_list[i])+
+  theme(axis.title.x = element_text(size=14),
+        axis.title.y = element_text(size=14, angle=90),
+        axis.text.x = element_text(size=12),
+        axis.text.y = element_text(size=12),
+        #axis.ticks.length = unit(3, "pt"),
+        legend.title = element_text(size=12, face="bold"),
+        legend.text = element_text(size=11),
+        legend.position = "right")+
+  theme(panel.grid.major = element_line(color = "gray", size = 0.6, linetype="dotted"),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA)) 
+    
+     #save plots as .pdf
+    ggsave(plot, file=paste(results, 
+                           entity_list[i], "_EC4c_ep0.5.pdf", sep=''),height = 4 , width = 10)
+    
+    # print plots to screen
+    #print(plot)
+  }
+#}
+
+```
+
+
+
+
+

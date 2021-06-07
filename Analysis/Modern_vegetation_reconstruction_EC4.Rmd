@@ -1,0 +1,637 @@
+---
+title: "Training and testing datasets"
+author: "Esmeralda Cruz-Silva"
+date: "01/04/2021"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+
+```{r}
+library(tidyverse)
+```
+
+Importing pollen data
+```{r}
+#   Modify path to the data
+polen_path <- "/Users/Esmesaurio/OneDrive - University of Reading/NEW_ITERATION_FINAL_MAY_2021/Data/Modern_pollen_percent/"
+polen_name <- "Modern_pollen_percent_embsecbio_smpds_May2021.csv"
+polen_file <- paste(polen_path, polen_name, sep="")
+polen <- read.csv(polen_file) 
+#str(polen)
+```
+
+
+Importing observed biome by using an particular search window
+```{r}
+#   Modify path to the data
+pnv_path <- "/Users/Esmesaurio/OneDrive - University of Reading/NEW_ITERATION_FINAL_MAY_CORECTED_2021/New_iteration_solving_downcores/Data/Extract_PNV_biome/"
+pnv_name <- "resolution1kmfrom250m_window21km_perside.csv"
+pnv_file <- paste(pnv_path, pnv_name, sep="")
+pnv_obs <- read.csv(pnv_file) 
+
+pnv_obs <- pnv_obs %>% select(-c(Third,Third_num))
+
+pnv_obs$Dominant_num[pnv_obs$Dominant_num==8]<-9
+pnv_obs$Dominant[pnv_obs$Dominant=="COOL"]<-"CMIX"
+pnv_obs$Subdominant_num[pnv_obs$Subdominant_num==8]<-9
+pnv_obs$Subdominant[pnv_obs$Subdominant=="COOL"]<-"CMIX"
+
+#str(pnv_obs)
+```
+
+
+```{r}
+#Set name of the iteration
+iteration <- "EC4C_ep0.5"
+
+#Set proportion of the data to be used as training dataset
+SampFrac <- 0.7
+
+#Set value of epsilon
+EpsVal<- 0.5
+
+path_to_folder <- "EC4"
+```
+
+
+```{r}
+amblong <- pnv_obs %>% 
+  inner_join(polen, by="entity_name") %>% 
+  subset(!is.na(Dominant)) #Remove samples whose observed biome within the search window is NA
+
+
+ambwide_amg <- amblong %>% 
+  pivot_wider(names_from = taxon_name, values_from = taxon_percent, values_fill = 0)
+
+
+#count number of samples in each biome to see the unbalance in the number of samples in each class or biome
+#ambwide_amg %>% ggplot(aes(Dominant)) + geom_bar()+ geom_text(stat='count', aes(label=..count..), vjust=-0.5)
+```
+
+Downsampling any majority class to have the same number than GRAM
+```{r}
+ratio <- ambwide_amg %>% count(Dominant) %>% 
+  mutate(med = median(n)) %>% 
+  pivot_wider(names_from = Dominant, values_from = n) %>% 
+  select(med,GRAM,DESE) %>%
+  #mutate(ratioo = med/COOL) %>% 
+  mutate(ratioo = GRAM/DESE) %>%
+  select(ratioo) %>% as_vector()
+
+#Random downsampling any majority class to have the same number of GRAM
+set.seed(2468)
+  recipes::recipe(~., ambwide_amg) %>%
+  themis::step_downsample(Dominant, under_ratio = ratio) %>%
+  recipes::prep() %>%
+  recipes::bake(new_data = NULL) -> oversamp
+```
+
+
+Split training and testing data
+```{r}
+train_data <- oversamp %>% 
+  group_by(Dominant) %>% 
+  sample_frac(SampFrac)
+
+train_data %>% 
+  ggplot(aes(Dominant)) +
+  geom_bar()+
+  geom_text(stat='count', aes(label=..count..), vjust=-0.5)
+
+test_data <- anti_join(oversamp,train_data)
+
+test_data %>% 
+  ggplot(aes(Dominant)) +
+  geom_bar()+
+  geom_text(stat='count', aes(label=..count..), vjust=-0.5)
+```
+
+
+
+##Get the TRAINING data table for the algorithm
+```{r}
+train_data <- train_data %>% 
+   pivot_longer(!c(ID_SAMPLE,entity_name,latitude,longitude,
+                  Dominant,Dominant_num,Subdominant,Subdominant_num), 
+               names_to = "taxon_name", values_to = "taxon_percent") %>% 
+  group_by(Dominant,taxon_name) %>%
+  #filter taxa that only occurs once in each group, since we cannot calculate the standard deviation
+  filter(n()>=2) %>% 
+  ungroup() %>%
+  pivot_wider(names_from = taxon_name, values_from = taxon_percent, values_fill = 0) %>% 
+  pivot_longer(!c(ID_SAMPLE,entity_name,latitude,longitude,
+                  Dominant,Dominant_num,Subdominant,Subdominant_num), 
+               names_to = "taxon_name", values_to = "taxon_percent") #This is the object needed for the box-plots
+
+train_data <- train_data %>% 
+  ungroup() %>% 
+  group_by(Dominant, taxon_name) %>%  # Specify group indicator
+  summarise_at(vars(taxon_percent),list(Mean = mean,
+                                        Stdev = sd)) %>% 
+  ungroup() %>% 
+  pivot_wider(names_from = Dominant, values_from = c(Mean, Stdev))
+
+
+#write.csv(train_data,"./DOWNCORE/Input/BiomeData_EC4c.csv")
+```
+
+
+##Get the TESTING data table for the algorithm
+```{r}
+test_data <- test_data %>% 
+  pivot_longer(!c(ID_SAMPLE,entity_name,latitude,longitude,
+                  Dominant,Dominant_num,Subdominant,Subdominant_num), 
+               names_to = "taxon_name", values_to = "taxon_percent") 
+
+
+#Get the TESTING data table from the EMBSECBIO region
+emb_test_data <- amblong %>% 
+  subset(latitude>28.00000) %>% 
+  subset(latitude<49.25000) %>% 
+  subset(longitude>20.00000) %>% 
+  subset(longitude<62.00000) %>% 
+  distinct()
+
+#write.csv(emb1,"./Input/SamplesEmbsecbio_O6.2.csv")
+#rm(amblong, ambwide_amg, pnv_obs, polen)
+```
+
+
+# Modern biomes reconstruction using the created training and testing data
+```{r}
+alldata <- full_join(test_data,train_data,by="taxon_name")
+#str(alldata)
+```
+
+
+
+##OBSERVED DOMINANT AND SUBDOMINANT BIOMES
+Get the observed dominant and subdominant biome in Hengl's PNV map for each sample
+```{r}
+#Get observed dominant biome
+obsv_biome1 <- alldata %>% 
+  filter(!is.na(ID_SAMPLE)) %>%
+  dplyr::select(entity_name,ID_SAMPLE,Dominant) %>% 
+  distinct() %>% group_by(entity_name)%>%
+  count(Dominant) %>% 
+  slice(which.max(n)) %>% 
+  ungroup() %>% 
+  dplyr::select(entity_name,Dominant)
+
+#Get observed subdominant biome
+obsv_biome2 <- alldata %>% 
+  filter(!is.na(ID_SAMPLE)) %>%
+  dplyr::select(entity_name,ID_SAMPLE,Subdominant) %>% 
+  distinct() %>% group_by(entity_name)%>%
+  count(Subdominant) %>% 
+  slice(which.max(n)) %>% 
+  ungroup() %>% 
+  dplyr::select(entity_name,Subdominant)
+```
+
+
+##PREDICTED BIOME
+Prepare the data
+```{r}
+#alldata <- alldata %>% 
+  ##Remove taxa that are in the training set, but were not found in the testing set
+ # filter(!is.na(ID_SAMPLE)) %>%
+  #Remove taxa that are in the testing set, but not in the training set.
+#  mutate_at(vars(a, b, c), ~replace_na(., 0))
+  
+ # subset(!is.na(Mean_TUND))
+```
+
+
+###Dissimilarity index
+```{r}
+sqsc <- alldata %>% 
+  #Set a value for epsilon
+  mutate(Epsilon=EpsVal)%>% 
+  mutate(TUND_Sqrt=(taxon_percent-Mean_TUND)^2/((Stdev_TUND+Epsilon)^2)) %>% 
+  mutate(DESE_Sqrt=(taxon_percent-Mean_DESE)^2/((Stdev_DESE+Epsilon)^2)) %>% 
+  mutate(GRAM_Sqrt=(taxon_percent-Mean_GRAM)^2/((Stdev_GRAM+Epsilon)^2)) %>% 
+  mutate(XSHB_Sqrt=(taxon_percent-Mean_XSHB)^2/((Stdev_XSHB+Epsilon)^2)) %>% 
+  mutate(CENF_Sqrt=(taxon_percent-Mean_CENF)^2/((Stdev_CENF+Epsilon)^2)) %>% 
+  #mutate(COOL_Sqrt=(taxon_percent-Mean_COOL)^2/((Stdev_COOL+Epsilon)^2)) %>% 
+  mutate(TEDE_Sqrt=(taxon_percent-Mean_TEDE)^2/((Stdev_TEDE+Epsilon)^2)) %>% 
+  mutate(CMIX_Sqrt=(taxon_percent-Mean_CMIX)^2/((Stdev_CMIX+Epsilon)^2)) %>% 
+  mutate(ENWD_Sqrt=(taxon_percent-Mean_ENWD)^2/((Stdev_ENWD+Epsilon)^2)) %>% 
+  mutate(WTSFS_Sqrt=(taxon_percent-Mean_WTSFS)^2/((Stdev_WTSFS+Epsilon)^2)) %>% 
+  dplyr::select(ID_SAMPLE,TUND_Sqrt,DESE_Sqrt,GRAM_Sqrt,XSHB_Sqrt,CENF_Sqrt,
+         TEDE_Sqrt,CMIX_Sqrt,ENWD_Sqrt,WTSFS_Sqrt) %>% 
+  group_by(ID_SAMPLE) %>% 
+  summarise(across(c(TUND_Sqrt,DESE_Sqrt,GRAM_Sqrt,XSHB_Sqrt,CENF_Sqrt,
+         TEDE_Sqrt,CMIX_Sqrt,ENWD_Sqrt,WTSFS_Sqrt), sum))%>% 
+  mutate(across(c(TUND_Sqrt,DESE_Sqrt,GRAM_Sqrt,XSHB_Sqrt,CENF_Sqrt,
+         TEDE_Sqrt,CMIX_Sqrt,ENWD_Sqrt,WTSFS_Sqrt), sqrt)) %>% 
+  ungroup()
+```
+
+
+###Get recirpocal of the scores and normalization
+```{r}
+biomes <- sqsc %>% 
+  mutate(TUND=exp(-TUND_Sqrt)) %>% 
+  mutate(DESE=exp(-DESE_Sqrt)) %>% 
+  mutate(GRAM=exp(-GRAM_Sqrt)) %>% 
+  mutate(XSHB=exp(-XSHB_Sqrt)) %>% 
+  mutate(ENWD=exp(-ENWD_Sqrt)) %>% 
+  mutate(WTSFS=exp(-WTSFS_Sqrt)) %>% 
+  mutate(CENF=exp(-CENF_Sqrt)) %>% 
+  #mutate(COOL=exp(-COOL_Sqrt)) %>% 
+  mutate(CMIX=exp(-CMIX_Sqrt)) %>% 
+  mutate(TEDE=exp(-TEDE_Sqrt)) %>%  
+  dplyr::select(ID_SAMPLE,TUND,DESE,GRAM,XSHB,ENWD,
+         WTSFS,CENF,CMIX,TEDE)
+```
+
+
+
+```{r}
+min_max_norm <- function(x) {(x - min(x)) / (max(x) - min(x))}
+
+biomes[2:10]<-modify(biomes[2:10],min_max_norm)
+```
+
+
+
+
+###Get the winner biome (highest score)
+```{r}
+sqsc2 <- biomes %>% 
+  mutate(predicted_biome=colnames(biomes [,2:10])[apply(biomes [,2:10], 1, which.max)]) %>% 
+  #mutate(predicted_num=apply(biomes [,2:11], 1, which.max)) %>% 
+  dplyr::select(ID_SAMPLE,predicted_biome)
+```
+
+
+###Get the most common biome in entities with duplicates
+```{r}
+biomes <- alldata %>% 
+  filter(!is.na(ID_SAMPLE)) %>%
+  dplyr::select(entity_name,ID_SAMPLE) %>% 
+  distinct() %>% 
+  inner_join(sqsc2, by = "ID_SAMPLE") %>% 
+  group_by(entity_name)%>%
+  count(predicted_biome) %>% 
+  slice(which.max(n)) %>% 
+  ungroup() %>% 
+  dplyr::select(entity_name,predicted_biome)
+```
+
+
+###Make a comparison table
+```{r}
+comparison <- biomes %>% 
+  inner_join(obsv_biome1, by="entity_name") %>% 
+  inner_join(obsv_biome2, by= "entity_name") %>% 
+#Obtain a composit matrix
+  mutate(ObsComposit = case_when(Dominant == predicted_biome ~ Dominant,
+                               Subdominant == predicted_biome  ~ Subdominant)) %>% 
+  mutate(ObsComposit = coalesce(ObsComposit,Dominant)) %>% 
+  mutate(PredComposit = case_when(Dominant==predicted_biome ~ predicted_biome,
+                                 Subdominant == predicted_biome ~ predicted_biome)) %>% 
+  mutate(PredComposit = coalesce(PredComposit,predicted_biome))
+```
+
+
+
+##CONFUSION MATRIX
+```{r}
+observed<-ordered(comparison$Dominant,levels=c("DESE","XSHB","WTSFS","GRAM","ENWD","TEDE","CMIX","CENF","TUND"))
+
+predicted<-ordered(comparison$predicted_biome,levels=c("DESE","XSHB","WTSFS","GRAM","ENWD","TEDE","CMIX","CENF","TUND"))
+
+zatab<-MLmetrics::ConfusionMatrix(y_true=observed,y_pred=predicted)
+zatab
+  
+rzatab<-round(prop.table(zatab,1)*100)
+rzatab
+
+write.csv(zatab, file=paste("./Comparison_matrices/",path_to_folder,"/",iteration,"_Dominant.csv",sep=''))
+#write.csv(rzatab,"./Comparison_matrices/Final_percent_epsilon1.csv")
+```
+
+
+```{r}
+observed<-ordered(comparison$ObsComposit,levels=c("DESE","XSHB","WTSFS","GRAM","ENWD","TEDE","CMIX","CENF","TUND"))
+
+predicted<-ordered(comparison$PredComposit,levels=c("DESE","XSHB","WTSFS","GRAM","ENWD","TEDE","CMIX","CENF","TUND"))
+
+zatab<-MLmetrics::ConfusionMatrix(y_true=observed,y_pred=predicted)
+zatab
+  
+rzatab<-round(prop.table(zatab,1)*100)
+rzatab
+
+write.csv(zatab, file=paste("./Comparison_matrices/",path_to_folder,"/",iteration,"_Composit.csv",sep=''))
+#write.csv(rzatab,"./Comparison_matrices/BE_0.5.csv")
+```
+
+
+
+
+```{r}
+comparison2 <- comparison %>% 
+  subset(!is.na(Subdominant))
+
+observed<-ordered(comparison2$Subdominant,levels=c("DESE","XSHB","WTSFS","GRAM","ENWD","TEDE","CMIX","CENF","TUND"))
+
+predicted<-ordered(comparison2$predicted_biome,levels=c("DESE","XSHB","WTSFS","GRAM","ENWD","TEDE","CMIX","CENF","TUND"))
+
+zatab<-MLmetrics::ConfusionMatrix(y_true=observed,y_pred=predicted)
+#zatab
+  
+rzatab<-round(prop.table(zatab,1)*100)
+#rzatab
+
+write.csv(zatab, file=paste("./Comparison_matrices/",path_to_folder,"/",iteration,"_Subdominant.csv",sep=''))
+#write.csv(rzatab,"./Comparison_matrices/BE_0.5.csv")
+```
+
+
+
+
+```{r}
+comparison$predicted_biome<-as.factor(comparison$predicted_biome)
+comparison$Dominant<-as.factor(comparison$Dominant)
+
+comparison$PredComposit<-as.factor(comparison$PredComposit)
+comparison$ObsComposit<-as.factor(comparison$ObsComposit)
+```
+
+
+Metrics calculated from the comparison matrix
+```{r}
+#Calculation of accuaracy
+mlr3measures::acc(comparison$Dominant, comparison$predicted_biome) -> acc1
+mlr3measures::acc(comparison$ObsComposit, comparison$PredComposit) -> acc2
+
+
+#Calculation of balanced accuracy for a multiclass categorization (Average of recalls)
+mlr3measures::bacc(comparison$Dominant, comparison$predicted_biome) -> bacc1
+mlr3measures::bacc(comparison$ObsComposit, comparison$PredComposit) -> bacc2
+
+
+#Create a tiny dataframe of the balance and balanced accuracy of both
+metrics <- data.frame(TestData= c("WholeRegion","WholeRegion"),
+                      IterEval=c("Dominant","Composit"),
+                      Accuracy=c((acc1*100),(acc2*100)),
+                      Balanced_accuracy=c((bacc1*100),(bacc2*100)))
+
+
+#write.csv(metrics, file=paste("./Comparison matrices/EC4c_eps0.5/",iteration,"_Metrics.csv",sep=''))
+```
+
+_________________________________________________________
+_________________________________________________________
+_________________________________________________________
+#EMBSeCBIO dataset
+
+
+
+# Modern biomes reconstruction using the created training and testing data
+```{r}
+alldata <- full_join(emb_test_data,train_data,by="taxon_name")
+```
+
+
+
+##OBSERVED DOMINANT AND SUBDOMINANT BIOMES
+Get the observed dominant and subdominant biome in Hengl's PNV map for each sample
+```{r}
+#Get observed dominant biome
+obsv_biome1 <- alldata %>% 
+  filter(!is.na(ID_SAMPLE)) %>%
+  dplyr::select(entity_name,ID_SAMPLE,Dominant) %>% 
+  distinct() %>% group_by(entity_name)%>%
+  count(Dominant) %>% 
+  slice(which.max(n)) %>% 
+  ungroup() %>% 
+  dplyr::select(entity_name,Dominant)
+
+#Get observed subdominant biome
+obsv_biome2 <- alldata %>% 
+  filter(!is.na(ID_SAMPLE)) %>%
+  dplyr::select(entity_name,ID_SAMPLE,Subdominant) %>% 
+  distinct() %>% group_by(entity_name)%>%
+  count(Subdominant) %>% 
+  slice(which.max(n)) %>% 
+  ungroup() %>% 
+  dplyr::select(entity_name,Subdominant)
+```
+
+
+##PREDICTED BIOME
+Prepare the data
+```{r}
+alldata <- alldata %>% 
+  ##Remove taxa that are in the training set, but were not found in the testing set
+  filter(!is.na(ID_SAMPLE)) %>%
+  #Remove taxa that are in the testing set, but not in the training set.
+  subset(!is.na(Mean_TUND))
+```
+
+
+###Dissimilarity index
+```{r}
+sqsc <- alldata %>% 
+  #Set a value for epsilon
+  mutate(Epsilon=EpsVal)%>% 
+  mutate(TUND_Sqrt=(taxon_percent-Mean_TUND)^2/((Stdev_TUND+Epsilon)^2)) %>% 
+  mutate(DESE_Sqrt=(taxon_percent-Mean_DESE)^2/((Stdev_DESE+Epsilon)^2)) %>% 
+  mutate(GRAM_Sqrt=(taxon_percent-Mean_GRAM)^2/((Stdev_GRAM+Epsilon)^2)) %>% 
+  mutate(XSHB_Sqrt=(taxon_percent-Mean_XSHB)^2/((Stdev_XSHB+Epsilon)^2)) %>% 
+  mutate(CENF_Sqrt=(taxon_percent-Mean_CENF)^2/((Stdev_CENF+Epsilon)^2)) %>% 
+  #mutate(COOL_Sqrt=(taxon_percent-Mean_COOL)^2/((Stdev_COOL+Epsilon)^2)) %>% 
+  mutate(TEDE_Sqrt=(taxon_percent-Mean_TEDE)^2/((Stdev_TEDE+Epsilon)^2)) %>% 
+  mutate(CMIX_Sqrt=(taxon_percent-Mean_CMIX)^2/((Stdev_CMIX+Epsilon)^2)) %>% 
+  mutate(ENWD_Sqrt=(taxon_percent-Mean_ENWD)^2/((Stdev_ENWD+Epsilon)^2)) %>% 
+  mutate(WTSFS_Sqrt=(taxon_percent-Mean_WTSFS)^2/((Stdev_WTSFS+Epsilon)^2)) %>% 
+  dplyr::select(ID_SAMPLE,TUND_Sqrt,DESE_Sqrt,GRAM_Sqrt,XSHB_Sqrt,CENF_Sqrt,
+         TEDE_Sqrt,CMIX_Sqrt,ENWD_Sqrt,WTSFS_Sqrt) %>% 
+  group_by(ID_SAMPLE) %>% 
+  summarise(across(c(TUND_Sqrt,DESE_Sqrt,GRAM_Sqrt,XSHB_Sqrt,CENF_Sqrt,
+         TEDE_Sqrt,CMIX_Sqrt,ENWD_Sqrt,WTSFS_Sqrt), sum))%>% 
+  mutate(across(c(TUND_Sqrt,DESE_Sqrt,GRAM_Sqrt,XSHB_Sqrt,CENF_Sqrt,
+         TEDE_Sqrt,CMIX_Sqrt,ENWD_Sqrt,WTSFS_Sqrt), sqrt)) %>% 
+  ungroup()
+```
+
+
+###Get recirpocal of the scores and normalization
+```{r}
+biomes <- sqsc %>% 
+  mutate(TUND=exp(-TUND_Sqrt)) %>% 
+  mutate(DESE=exp(-DESE_Sqrt)) %>% 
+  mutate(GRAM=exp(-GRAM_Sqrt)) %>% 
+  mutate(XSHB=exp(-XSHB_Sqrt)) %>% 
+  mutate(ENWD=exp(-ENWD_Sqrt)) %>% 
+  mutate(WTSFS=exp(-WTSFS_Sqrt)) %>% 
+  mutate(CENF=exp(-CENF_Sqrt)) %>% 
+  #mutate(COOL=exp(-COOL_Sqrt)) %>% 
+  mutate(CMIX=exp(-CMIX_Sqrt)) %>% 
+  mutate(TEDE=exp(-TEDE_Sqrt)) %>%  
+  dplyr::select(ID_SAMPLE,TUND,DESE,GRAM,XSHB,ENWD,
+         WTSFS,CENF,CMIX,TEDE)
+
+#(alldata,"/Users/Esmesaurio/Desktop/Benja3.csv")
+```
+
+
+
+```{r}
+min_max_norm <- function(x) {(x - min(x)) / (max(x) - min(x))}
+
+biomes[2:10]<-modify(biomes[2:10],min_max_norm)
+```
+
+
+
+
+###Get the winner biome (highest score)
+```{r}
+sqsc2 <- biomes %>% 
+  mutate(predicted_biome=colnames(biomes [,2:10])[apply(biomes [,2:10], 1, which.max)]) %>% 
+  #mutate(predicted_num=apply(biomes [,2:11], 1, which.max)) %>% 
+  dplyr::select(ID_SAMPLE,predicted_biome)
+```
+
+
+###Get the most common biome in entities with duplicates
+```{r}
+biomes <- alldata %>% 
+  filter(!is.na(ID_SAMPLE)) %>%
+  dplyr::select(entity_name,ID_SAMPLE) %>% 
+  distinct() %>% 
+  inner_join(sqsc2, by = "ID_SAMPLE") %>% 
+  group_by(entity_name)%>%
+  count(predicted_biome) %>% 
+  slice(which.max(n)) %>% 
+  ungroup() %>% 
+  dplyr::select(entity_name,predicted_biome)
+```
+
+
+###Make a comparison table
+```{r}
+comparison <- biomes %>% 
+  inner_join(obsv_biome1, by="entity_name") %>% 
+  inner_join(obsv_biome2, by= "entity_name") %>% 
+#Obtain a composit matrix
+  mutate(ObsComposit = case_when(Dominant == predicted_biome ~ Dominant,
+                               Subdominant == predicted_biome  ~ Subdominant)) %>% 
+  mutate(ObsComposit = coalesce(ObsComposit,Dominant)) %>% 
+  mutate(PredComposit = case_when(Dominant==predicted_biome ~ predicted_biome,
+                                 Subdominant == predicted_biome ~ predicted_biome)) %>% 
+  mutate(PredComposit = coalesce(PredComposit,predicted_biome))
+```
+
+
+
+##CONFUSION MATRIX
+```{r}
+observed<-ordered(comparison$Dominant,levels=c("DESE","XSHB","WTSFS","GRAM","ENWD","TEDE","CMIX","CENF","TUND"))
+
+predicted<-ordered(comparison$predicted_biome,levels=c("DESE","XSHB","WTSFS","GRAM","ENWD","TEDE","CMIX","CENF","TUND"))
+
+zatab<-MLmetrics::ConfusionMatrix(y_true=observed,y_pred=predicted)
+zatab
+  
+rzatab<-round(prop.table(zatab,1)*100)
+rzatab
+
+write.csv(zatab, file=paste("./Comparison_matrices/",path_to_folder,"/",iteration,"_EMB_Dominant.csv",sep=''))
+#write.csv(rzatab,"./Comparison_matrices/Final_percent_epsilon1.csv")
+```
+
+
+```{r}
+observed<-ordered(comparison$ObsComposit,levels=c("DESE","XSHB","WTSFS","GRAM","ENWD","TEDE","CMIX","CENF","TUND"))
+
+predicted<-ordered(comparison$PredComposit,levels=c("DESE","XSHB","WTSFS","GRAM","ENWD","TEDE","CMIX","CENF","TUND"))
+
+zatab<-MLmetrics::ConfusionMatrix(y_true=observed,y_pred=predicted)
+zatab
+  
+rzatab<-round(prop.table(zatab,1)*100)
+rzatab
+
+write.csv(zatab, file=paste("./Comparison_matrices/",path_to_folder,"/",iteration,"_EMB_Composit.csv",sep=''))
+#write.csv(rzatab,"./Comparison_matrices/BE_0.5.csv")
+```
+
+
+```{r}
+comparison2 <- comparison %>% 
+  subset(!is.na(Subdominant))
+
+observed<-ordered(comparison2$Subdominant,levels=c("DESE","XSHB","WTSFS","GRAM","ENWD","TEDE","CMIX","CENF","TUND"))
+
+predicted<-ordered(comparison2$predicted_biome,levels=c("DESE","XSHB","WTSFS","GRAM","ENWD","TEDE","CMIX","CENF","TUND"))
+
+zatab<-MLmetrics::ConfusionMatrix(y_true=observed,y_pred=predicted)
+#zatab
+  
+rzatab<-round(prop.table(zatab,1)*100)
+#rzatab
+
+write.csv(zatab, file=paste("./Comparison_matrices/",path_to_folder,"/",iteration,"_EMB_Subdominat.csv",sep=''))
+#write.csv(rzatab,"./Comparison_matrices/BE_0.5.csv")
+```
+
+
+
+
+```{r}
+comparison %>% 
+  filter(!predicted_biome%in%c("TUND","CENF")) %>% 
+  filter(!Dominant%in%c("TUND","CENF"))->comparison
+
+
+comparison$predicted_biome<-as.factor(comparison$predicted_biome)
+comparison$Dominant<-as.factor(comparison$Dominant)
+
+comparison$PredComposit<-as.factor(comparison$PredComposit)
+comparison$ObsComposit<-as.factor(comparison$ObsComposit)
+```
+
+
+Metrics calculated from the comparison matrix
+```{r}
+#Calculation of accuaracy
+mlr3measures::acc(comparison$Dominant, comparison$predicted_biome) -> acc1
+mlr3measures::acc(comparison$ObsComposit, comparison$PredComposit) -> acc2
+
+
+#Calculation of balanced accuracy for a multiclass categorization (Average of recalls)
+mlr3measures::bacc(comparison$Dominant, comparison$predicted_biome) -> bacc1
+mlr3measures::bacc(comparison$ObsComposit, comparison$PredComposit) -> bacc2
+
+
+#Create a tiny dataframe of the balance and balanced accuracy of both
+metrics2 <- data.frame(TestData= c("EMBSE","EMBSE"),
+                       IterEval=c("Dominant","Composit"),
+                       Accuracy=c((acc1*100),(acc2*100)),
+                       Balanced_accuracy=c((bacc1*100),(bacc2*100)))
+
+
+#write.csv(metrics2, file=paste("./Comparison matrices/EC4c_eps0.5/",iteration,"_EMB_Metrics.csv",sep=''))
+```
+
+
+
+```{r}
+metrics_final <- bind_rows(metrics,metrics2)
+
+metrics_final
+
+write.csv(metrics_final, file=paste("./Comparison_matrices/",path_to_folder,"/",iteration,"_Metrics.csv",sep=''))
+```
+
+
+
