@@ -16,10 +16,13 @@ library(tidyverse)
 Importing modern pollen percentages
 ```{r}
 #   Modify path to the data
-polen_path <- "/My Drive/Github_esme/Within_varibility_technique/Input/Modern_pollen_percent/"
+polen_path <- "/My Drive/Github_esme/Within_variability_technique/Input/Modern_pollen_percent/"
 polen_name <- "Modern_pollen_percent_embsecbio_smpds_May2021.csv"
 polen_file <- paste(polen_path, polen_name, sep="")
 polen <- read.csv(polen_file) 
+
+polen <- polen %>% select(-X)
+
 str(polen)
 ```
 
@@ -27,7 +30,7 @@ str(polen)
 Importing observed biome by using an particular search window
 ```{r}
 #   Modify path to the data
-pnv_path <- "/My Drive/Github_esme/Within_varibility_technique/Input/Extract_PNV_biome/"
+pnv_path <- "/My Drive/Github_esme/Within_variability_technique/Input/Extract_PNV_biome/"
 pnv_name <- "resolution1kmfrom250m_window21km_perside.csv"
 pnv_file <- paste(pnv_path, pnv_name, sep="")
 pnv_obs <- read.csv(pnv_file) 
@@ -55,7 +58,7 @@ iteration <- "EC4c_ep0.1"
 SampFrac <- 0.7
 
 #Set value for epsilon
-EpsVal<- 0.5
+EpsVal<- 0.1
 ```
 
 
@@ -320,8 +323,7 @@ zatab
 rzatab<-round(prop.table(zatab,1)*100)
 rzatab
 
-write.csv(zatab, file=paste("./Comparison_matrices/",path_to_folder,"/",iteration,"_Dominant.csv",sep=''))
-#write.csv(rzatab,"./Comparison_matrices/Final_percent_epsilon1.csv")
+write.csv(zatab, file=paste(path_to_results,iteration, "_Dominant.csv", sep=''))
 ```
 
 
@@ -336,8 +338,7 @@ zatab
 rzatab<-round(prop.table(zatab,1)*100)
 rzatab
 
-write.csv(zatab, file=paste("./Comparison_matrices/",path_to_folder,"/",iteration,"_Composit.csv",sep=''))
-#write.csv(rzatab,"./Comparison_matrices/BE_0.5.csv")
+write.csv(zatab, file=paste(path_to_results,iteration, "_Composit.csv", sep=''))
 ```
 
 
@@ -357,8 +358,7 @@ zatab<-MLmetrics::ConfusionMatrix(y_true=observed,y_pred=predicted)
 rzatab<-round(prop.table(zatab,1)*100)
 #rzatab
 
-write.csv(zatab, file=paste("./Comparison_matrices/",path_to_folder,"/",iteration,"_Subdominant.csv",sep=''))
-#write.csv(rzatab,"./Comparison_matrices/BE_0.5.csv")
+write.csv(zatab, file=paste(path_to_results,iteration, "_Subdominant.csv", sep=''))
 ```
 
 
@@ -556,8 +556,7 @@ zatab
 rzatab<-round(prop.table(zatab,1)*100)
 rzatab
 
-write.csv(zatab, file=paste("./Comparison_matrices/",path_to_folder,"/",iteration,"_EMB_Dominant.csv",sep=''))
-#write.csv(rzatab,"./Comparison_matrices/Final_percent_epsilon1.csv")
+write.csv(zatab, file=paste(path_to_results,iteration, "_EMB_Dominant.csv", sep=''))
 ```
 
 
@@ -572,8 +571,7 @@ zatab
 rzatab<-round(prop.table(zatab,1)*100)
 rzatab
 
-write.csv(zatab, file=paste("./Comparison_matrices/",path_to_folder,"/",iteration,"_EMB_Composit.csv",sep=''))
-#write.csv(rzatab,"./Comparison_matrices/BE_0.5.csv")
+write.csv(zatab, file=paste(path_to_results,iteration, "_EMB_Composit.csv", sep=''))
 ```
 
 
@@ -591,8 +589,7 @@ zatab<-MLmetrics::ConfusionMatrix(y_true=observed,y_pred=predicted)
 rzatab<-round(prop.table(zatab,1)*100)
 #rzatab
 
-write.csv(zatab, file=paste("./Comparison_matrices/",path_to_folder,"/",iteration,"_EMB_Subdominat.csv",sep=''))
-#write.csv(rzatab,"./Comparison_matrices/BE_0.5.csv")
+write.csv(zatab, file=paste(path_to_results,iteration, "_EMB_Subdominant.csv", sep=''))
 ```
 
 
@@ -641,8 +638,6 @@ metrics_final <- bind_rows(metrics,metrics2)
 
 metrics_final
 
-write.csv(metrics_final, file=paste("./Comparison_matrices/",path_to_folder,"/",iteration,"_Metrics.csv",sep=''))
+write.csv(zatab, file=paste(path_to_results,iteration, "_Metrics.csv", sep=''))
 ```
-
-
 
