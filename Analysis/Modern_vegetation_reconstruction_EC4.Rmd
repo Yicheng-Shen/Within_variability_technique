@@ -55,7 +55,7 @@ iteration <- "EC4c_ep0.1"
 SampFrac <- 0.7
 
 #Set value for epsilon
-EpsVal<- 0.1
+EpsVal<- 0.5
 ```
 
 
@@ -167,6 +167,10 @@ emb_test_data <- amblong %>%
 # Modern biomes reconstruction using the created training and testing data
 ```{r}
 alldata <- full_join(test_data,train_data,by="taxon_name")
+
+alldata <- alldata %>%
+  mutate_at(vars(-Subdominant_num,-Subdominant,-Dominant_num,-Dominant,-taxon_name,-entity_name), ~replace_na(., 0))
+
 #str(alldata)
 ```
 
@@ -401,6 +405,9 @@ _________________________________________________________
 # Modern biomes reconstruction using the created training and testing data
 ```{r}
 alldata <- full_join(emb_test_data,train_data,by="taxon_name")
+
+alldata <- alldata %>%
+  mutate_at(vars(-Subdominant_num,-Subdominant,-Dominant_num,-Dominant,-taxon_name,-entity_name), ~replace_na(., 0))
 ```
 
 
@@ -433,11 +440,11 @@ obsv_biome2 <- alldata %>%
 ##PREDICTED BIOME
 Prepare the data
 ```{r}
-alldata <- alldata %>% 
+#alldata <- alldata %>% 
   ##Remove taxa that are in the training set, but were not found in the testing set
-  filter(!is.na(ID_SAMPLE)) %>%
+ # filter(!is.na(ID_SAMPLE)) %>%
   #Remove taxa that are in the testing set, but not in the training set.
-  subset(!is.na(Mean_TUND))
+  #subset(!is.na(Mean_TUND))
 ```
 
 
