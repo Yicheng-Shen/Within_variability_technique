@@ -52,13 +52,13 @@ str(pnv_obs)
 path_to_results <- "C:/Users/Esmesaurio/OneDrive - University of Reading/NEW_ITERATION_FINAL_MAY_CORECTED_2021/New_iteration_solving_downcores/R_testing/Comparison_matrices/EC4/"
 
 #Set name of the iteration
-iteration <- "EC4c_ep0.1"
+iteration <- "EC4c_ep0.5"
 
 #Set proportion of the data to be used as training dataset (0.7 for a training/testing ratio of 70:30)
 SampFrac <- 0.7
 
 #Set value for epsilon
-EpsVal<- 0.1
+EpsVal<- 0.5
 ```
 
 
