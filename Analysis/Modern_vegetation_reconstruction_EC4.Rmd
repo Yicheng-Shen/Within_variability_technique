@@ -45,34 +45,38 @@ str(pnv_obs)
 
 #Setting some traits
 ```{r}
+#Set path to output files
+path_to_results <- "C:/Users/Esmesaurio/OneDrive - University of Reading/NEW_ITERATION_FINAL_MAY_CORECTED_2021/New_iteration_solving_downcores/R_testing/Comparison_matrices/EC4/"
+
 #Set name of the iteration
-iteration <- "EC4C_ep0.5"
+iteration <- "EC4c_ep0.1"
 
 #Set proportion of the data to be used as training dataset (0.7 for a training/testing ratio of 70:30)
 SampFrac <- 0.7
 
 #Set value for epsilon
-EpsVal<- 0.5
-
-path_to_folder <- "EC4"
+EpsVal<- 0.1
 ```
 
 
+
 1. Removing samples whose observed biome within the search window is NA
-2. Downsampling any majoraty class to have the same number than GRAM
+2. Downsampling any majoraty class to have the same size of the medium size class. In this case we downsampled any majority class towards GRAM by using Themis R package. More details in: https://themis.tidymodels.org/
 
 ```{r}
+#Long format
 amblong <- pnv_obs %>% 
   inner_join(polen, by="entity_name") %>% 
   subset(!is.na(Dominant)) #Remove samples whose observed biome within the search window is NA
 
-
+#Wide format
 ambwide_amg <- amblong %>% 
   pivot_wider(names_from = taxon_name, values_from = taxon_percent, values_fill = 0) 
 
 #count number of samples in each biome to see the unbalance in the number of samples in each class or biome
 #ambwide_amg %>% ggplot(aes(Dominant)) + geom_bar()+ geom_text(stat='count', aes(label=..count..), vjust=-0.5)
 
+#Set a numeric value for the ratio of the majority-to-minority frequencies in each class.
 ratio <- ambwide_amg %>% count(Dominant) %>% 
   mutate(med = median(n)) %>% 
   pivot_wider(names_from = Dominant, values_from = n) %>% 
@@ -84,7 +88,7 @@ ratio <- ambwide_amg %>% count(Dominant) %>%
 #Random downsampling any majority class to have the same number of GRAM
 set.seed(2468)
   recipes::recipe(~., ambwide_amg) %>%
-  themis::step_downsample(Dominant, under_ratio = ratio) %>%
+  themis::step_downsample(Dominant, under_ratio = ratio) %>% 
   recipes::prep() %>%
   recipes::bake(new_data = NULL) -> oversamp
 ```
