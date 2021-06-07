@@ -13,7 +13,7 @@ output:
 library(tidyverse)
 ```
 
-Importing pollen data
+Importing modern pollen percentages
 ```{r}
 #   Modify path to the data
 polen_path <- "/My Drive/Github_esme/Within_varibility_technique/Input/Modern_pollen_percent/"
