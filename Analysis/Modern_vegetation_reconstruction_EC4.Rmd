@@ -171,8 +171,8 @@ emb_test_data <- amblong %>%
 ```{r}
 alldata <- full_join(test_data,train_data,by="taxon_name")
 
-alldata <- alldata %>%
-  mutate_at(vars(-Subdominant_num,-Subdominant,-Dominant_num,-Dominant,-taxon_name,-entity_name), ~replace_na(., 0))
+#alldata <- alldata %>%
+#  mutate_at(vars(-Subdominant_num,-Subdominant,-Dominant_num,-Dominant,-taxon_name,-entity_name), ~replace_na(., 0))
 
 #str(alldata)
 ```
@@ -406,8 +406,8 @@ _________________________________________________________
 ```{r}
 alldata <- full_join(emb_test_data,train_data,by="taxon_name")
 
-alldata <- alldata %>%
-  mutate_at(vars(-Subdominant_num,-Subdominant,-Dominant_num,-Dominant,-taxon_name,-entity_name), ~replace_na(., 0))
+#alldata <- alldata %>%
+#  mutate_at(vars(-Subdominant_num,-Subdominant,-Dominant_num,-Dominant,-taxon_name,-entity_name), ~replace_na(., 0))
 ```
 
 
