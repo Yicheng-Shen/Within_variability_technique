@@ -7,11 +7,11 @@ output: html_document
 
 
 ```{r}
-DowncoreData <- read.csv("Input/SampleData_DOWNCORE_16April2021.csv",header=TRUE,sep=",")
+DowncoreData <- read.csv("/My Drive/Github_esme/Within_variability_technique/Input/Modern_fossil_pollen_percentages/SampleData_DOWNCORE_16April2021.csv",header=TRUE,sep=",")
 
 DowncoreData <- DowncoreData %>% subset(age<13200)
 
-BiomeData <- read.csv("Input/BiomeData_EC4c.csv",header=TRUE,sep=",")
+BiomeData <- read.csv("/My Drive/Github_esme/Within_variability_technique/Input/Training_dataset/Train_data_EC4c.csv",header=TRUE,sep=",")
 
 #Create a table AllData
 alldata <- full_join(DowncoreData,BiomeData,by="taxon_name")
@@ -27,6 +27,10 @@ alldata <- alldata %>%
   filter(!is.na(ID_SAMPLE)) %>% 
   #Remove taxa that are in the testing set, but not in the training set.
   subset(!is.na(Mean_CENF))
+
+
+#alldata <- alldata %>%
+  #mutate_at(vars(-entity_name,taxon_name), ~replace_na(., 0))
 ```
 
 
@@ -34,7 +38,7 @@ alldata <- alldata %>%
 ```{r}
 alldata %>% 
   #Set a value for epsilon
-  mutate(Epsilon=0.5)%>% 
+  mutate(Epsilon=0.1)%>% 
   mutate(TUND_Sqrt=(taxon_percent-Mean_TUND)^2/((Stdev_TUND+Epsilon)^2)) %>% 
   mutate(DESE_Sqrt=(taxon_percent-Mean_DESE)^2/((Stdev_DESE+Epsilon)^2)) %>% 
   mutate(GRAM_Sqrt=(taxon_percent-Mean_GRAM)^2/((Stdev_GRAM+Epsilon)^2)) %>% 
@@ -194,12 +198,12 @@ selected_time <- "Present"
 PresentMap <- ggplot(data = world) +
   #geom_sf(col="black",fill="transparent") + #Using if we want political borders
   coord_sf(ylim = c(28.05317,49.2431), xlim = c(19.54792, 64), expand = FALSE)+
-  geom_raster(data=natelevation, aes(y=Latitude, x=Longitude, fill=elevation), show.legend = F)+
-  scale_fill_gradientn(colours = c("#6c8396", "#f8f8f8"))+#152736
-  geom_polygon(data = ocean, aes(x=long, y=lat, group=group), fill='#E2F1FC')+#E2F1FC
+ # geom_raster(data=natelevation, aes(y=Latitude, x=Longitude, fill=elevation), show.legend = F)+
+#  scale_fill_gradientn(colours = c("#6c8396", "#f8f8f8"))+#152736
+ # geom_polygon(data = ocean, aes(x=long, y=lat, group=group), fill='#E2F1FC')+#E2F1FC
   geom_point(subset(slig, slig$TimeSlice==selected_time),
     mapping = aes(x = longitude, y = latitude,colour=predicted_biome, size=predicted_score), alpha=0.8)+
-      scale_size(limits = c(min(slig$predicted_score),max(slig$predicted_score)),range = c(0.5,5),breaks = c(0.25,1))+ #or: c(0.1,5)
+      scale_size(limits = c(min(slig$predicted_score),max(slig$predicted_score)),range = c(1,10),breaks = c(0.25,1))+ #or: c(0.1,5)
       scale_color_manual(values = colores)+
   guides(color = guide_legend(override.aes = list(size = 2.5))) +
   ggtitle(selected_time)+
@@ -228,7 +232,7 @@ ggsave(PresentMap, file="./Strat_maps/EC4c_0.5/Modern_EC4c_ep0.5.tiff", scale=1)
 
 ```{r}
 # folder where you want the graphs to be saved:
-results <- "./Strat_maps/EC4c_0.5/"  
+results <- ""  
   
   # create list of time windows data to loop over 
   entity_list <- unique(slig$TimeSlice)
