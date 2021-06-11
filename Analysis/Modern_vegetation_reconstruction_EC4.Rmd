@@ -16,7 +16,7 @@ library(tidyverse)
 Importing modern pollen percentages
 ```{r}
 #   Modify path to the data
-polen_path <- "/My Drive/Github_esme/Within_variability_technique/Input/Modern_pollen_percent/"
+polen_path <- "/My Drive/Github_esme/Within_variability_technique/Input/Modern_fossil_pollen_percentages/"
 polen_name <- "Modern_pollen_percent_embsecbio_smpds_May2021.csv"
 polen_file <- paste(polen_path, polen_name, sep="")
 polen <- read.csv(polen_file) 
